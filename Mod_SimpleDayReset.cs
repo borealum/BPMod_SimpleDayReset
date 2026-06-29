@@ -8,7 +8,7 @@ using MelonLoader;
 using UnityEngine;
 using Object = Il2CppSystem.Object;
 
-[assembly: MelonInfo(typeof(BPMod_SimpleDayReset.Mod_SimpleDayReset), "BPMod_SimpleDayReset", "1.0.0", "Borealum", null)]
+[assembly: MelonInfo(typeof(BPMod_SimpleDayReset.Mod_SimpleDayReset), "BPMod_SimpleDayReset", "1.1.0", "Borealum", null)]
 [assembly: MelonGame("Dogubomb", "BLUE PRINCE")]
 
 namespace BPMod_SimpleDayReset
@@ -24,10 +24,16 @@ namespace BPMod_SimpleDayReset
         public static bool resetTheGame = false;
         public static GameObject currSave;
         public static int saveSlot;
+        public static Material sourceMaterial;
+        String categoryID = "Borealum_BPSimpleReset";
+        String resetKeyID = "Borealum_BPSimpleReset_resetKey";
+        private static MelonPreferences_Entry<KeyCode> resetKey;
 
         public override void OnInitializeMelon()
         {
             ClassInjector.RegisterTypeInIl2Cpp<MyButtonHandler>();
+            resetKey = MelonPreferences.CreateEntry<KeyCode>(categoryID, resetKeyID, KeyCode.O, resetKeyID, "Key for reseting. Default key is \"O\". Should handle controller inputs too, links to mapping in the mod description on nexusmods.");
+            LoggerInstance.Msg($"{resetKeyID} value = {resetKey.Value}");
             LoggerInstance.Msg("Initialized.");
         }
 
@@ -169,6 +175,77 @@ namespace BPMod_SimpleDayReset
             }
         }
 
+        public float holdTime = 3f;
+        private float timer = 0f;
+        private bool triggered = false;
+
+        public override void OnUpdate()
+        {
+            if (Input.GetKeyDown(resetKey.Value))
+            {
+                timer = 0f;
+                triggered = false;
+            }
+            if (Input.GetKey(resetKey.Value) && !triggered)
+            {
+                timer += Time.deltaTime;
+                if (timer >= holdTime)
+                {
+                    triggered = true;
+                    ResetDay();
+                }
+            }
+            if (Input.GetKeyUp(resetKey.Value))
+            {
+                timer = 0f;
+                triggered = false;
+            }
+        }
+
+        public static void ResetDay()
+        {
+            PlayMakerFSM globalPersistentFSM = globalPersistent?.GetComponent<PlayMakerFSM>();
+            PlayMakerFSM saveSystemFSM = saveSystem?.GetComponent<PlayMakerFSM>();
+            if (globalPersistentFSM != null && saveSystemFSM != null)
+            {
+                /*
+                 * just doing this by itself wasn't enough, it played the intro cutscene and showed "day 1" but permanent changes were still there...
+                 * maybe just doing some globalPersistentFSM.Reset() would have been easier...but I realized that late
+                 * //globalPersistentFSM.FsmVariables.GetFsmInt("DAY").Value -= 1;
+                 * //saveSystemFSM.Fsm.GetState("Dream Check 2").GetTransition(0).ToFsmState = saveSystemFSM.Fsm.GetState("Restart");
+                 */
+
+                //try gobalPersistentFSM.Reset()? - freezes game
+
+                //hide buttons
+                saveContinueObj.transform.Find("YES")?.gameObject.SetActive(false);
+                saveContinueObj.transform.Find("NO")?.gameObject.SetActive(false);
+                saveContinueObj.transform.Find(myButtonName)?.gameObject.SetActive(false);
+                callItADayObj.SetActive(false);
+                saveContinueObj.SetActive(true);
+                PlayMakerFSM saveContinueFsm = saveContinueObj.GetComponent<PlayMakerFSM>();
+                saveContinueFsm.Fsm.Variables.GetFsmBool("CALL IT BUTTON").Value = true;//this is set when using the original continue button, not sure if it's important
+
+                //rerouting save system transitions
+                //to load game instead of saving
+                saveSystemFSM.Fsm.GetState("Dream Check 2").GetTransition(0).ToFsmState = saveSystemFSM.Fsm.GetState("Load");
+                //to reload the scene after loading
+                saveSystemFSM.Fsm.GetState("Rarity Shift Convert 2").GetTransition(0).ToFsmState = saveSystemFSM.Fsm.GetState("Restart");
+                //shouldn't need to reset the fsm connections after loading, because it magically happens on scene reload?
+
+                MelonLogger.Msg($"Reset day - loading SaveSlot: {globalPersistentFSM.fsm.Variables.GetFsmInt("SaveSlot").Value}");
+                //fiddling with manual loading, throw away
+                //if (ES3.KeyExists("BluePrint3"))
+                //{
+                //    ES3.LoadInto("BluePrint3", globalPersistentFSM.GetComponent<PlayMakerFSM>());
+                //}
+
+                //execute loading
+                saveContinueFsm.SendEvent("Go");//handles stopAllTracks(), fadeOut()... and sends "SAVE DATA SAVE" to save system
+                //SceneManager.LoadSceneAsync("Mount Holly Estate", LoadSceneMode.Single);//doable? but I prefer running the existing fsm logic so everything is executed like in game
+            }
+        }
+
         // Finds child by path, including inactive objects
         private Transform FindDeep(Transform parent, string path)
         {
@@ -230,46 +307,7 @@ namespace BPMod_SimpleDayReset
                 }
                 if (Input.GetMouseButtonDown(0))
                 {
-                    PlayMakerFSM globalPersistentFSM = Mod_SimpleDayReset.globalPersistent?.GetComponent<PlayMakerFSM>();
-                    PlayMakerFSM saveSystemFSM = Mod_SimpleDayReset.saveSystem?.GetComponent<PlayMakerFSM>();
-                    if (globalPersistentFSM != null && saveSystemFSM != null)
-                    {
-                        /*
-                         * just doing this by itself wasn't enough, it played the intro cutscene and showed "day 1" but permanent changes were still there...
-                         * maybe just doing some globalPersistentFSM.Reset() would have been easier...but I realized that late
-                         * //globalPersistentFSM.FsmVariables.GetFsmInt("DAY").Value -= 1;
-                         * //saveSystemFSM.Fsm.GetState("Dream Check 2").GetTransition(0).ToFsmState = saveSystemFSM.Fsm.GetState("Restart");
-                         */
-
-                        //try gobalPersistentFSM.Reset()? - freezes game
-
-                        //hide buttons
-                        Mod_SimpleDayReset.saveContinueObj.transform.Find("YES")?.gameObject.SetActive(false);
-                        Mod_SimpleDayReset.saveContinueObj.transform.Find("NO")?.gameObject.SetActive(false);
-                        Mod_SimpleDayReset.saveContinueObj.transform.Find(Mod_SimpleDayReset.myButtonName)?.gameObject.SetActive(false);
-                        Mod_SimpleDayReset.callItADayObj.SetActive(false);
-                        Mod_SimpleDayReset.saveContinueObj.SetActive(true);
-                        PlayMakerFSM saveContinueFsm = Mod_SimpleDayReset.saveContinueObj.GetComponent<PlayMakerFSM>();
-                        saveContinueFsm.Fsm.Variables.GetFsmBool("CALL IT BUTTON").Value = true;//this is set when using the original continue button, not sure if it's important
-
-                        //rerouting save system transitions
-                        //to load game instead of saving
-                        saveSystemFSM.Fsm.GetState("Dream Check 2").GetTransition(0).ToFsmState = saveSystemFSM.Fsm.GetState("Load");
-                        //to reload the scene after loading
-                        saveSystemFSM.Fsm.GetState("Rarity Shift Convert 2").GetTransition(0).ToFsmState = saveSystemFSM.Fsm.GetState("Restart");
-                        //shouldn't need to reset the fsm connections after loading, because it magically happens on scene reload?
-
-                        MelonLogger.Msg($"Reset day - loading SaveSlot: {globalPersistentFSM.fsm.Variables.GetFsmInt("SaveSlot").Value}");
-                        //fiddling with manual loading, throw away
-                        //if (ES3.KeyExists("BluePrint3"))
-                        //{
-                        //    ES3.LoadInto("BluePrint3", globalPersistentFSM.GetComponent<PlayMakerFSM>());
-                        //}
-
-                        //execute loading
-                        saveContinueFsm.SendEvent("Go");//handles stopAllTracks(), fadeOut()... and sends "SAVE DATA SAVE" to save system
-                        //SceneManager.LoadSceneAsync("Mount Holly Estate", LoadSceneMode.Single);//doable, but I prefer running the existing fsm logic so everything is executed like in game
-                    }
+                    Mod_SimpleDayReset.ResetDay();
                 }
             }
             else
